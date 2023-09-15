@@ -253,8 +253,12 @@ def _intersect_expanded_scopes(scopes_a, scopes_b, db=None):
             }
 
             # resolve hierarchies (group/user/server) in both directions
-            common_servers = common_filters[base].get("server", set())
-            common_users = common_filters[base].get("user", set())
+            common_servers = initial_common_servers = common_filters[base].get(
+                "server", frozenset()
+            )
+            common_users = initial_common_users = common_filters[base].get(
+                "user", frozenset()
+            )
 
             for a, b in [(filters_a, filters_b), (filters_b, filters_a)]:
                 if 'server' in a and b.get('server') != a['server']:
@@ -266,7 +270,7 @@ def _intersect_expanded_scopes(scopes_a, scopes_b, db=None):
                         for server in servers:
                             username, _, servername = server.partition("/")
                             if username in b['user']:
-                                common_servers.add(server)
+                                common_servers = common_servers | {server}
 
                     # resolve group/server hierarchy if db available
                     servers = servers.difference(common_servers)
@@ -275,7 +279,7 @@ def _intersect_expanded_scopes(scopes_a, scopes_b, db=None):
                         for server in servers:
                             server_groups = groups_for_server(server)
                             if server_groups & b['group']:
-                                common_servers.add(server)
+                                common_servers = common_servers | {server}
 
                 # resolve group/user hierarchy if db available and user sets aren't identical
                 if (
@@ -289,14 +293,16 @@ def _intersect_expanded_scopes(scopes_a, scopes_b, db=None):
                     for username in users:
                         groups = groups_for_user(username)
                         if groups & b["group"]:
-                            common_users.add(username)
+                            common_users = common_users | {username}
 
-            # add server filter if there wasn't one before
-            if common_servers and "server" not in common_filters[base]:
+            # add server filter if it's non-empty
+            # and it changed
+            if common_servers and common_servers != initial_common_servers:
                 common_filters[base]["server"] = common_servers
 
-            # add user filter if it's non-empty and there wasn't one before
-            if common_users and "user" not in common_filters[base]:
+            # add user filter if it's non-empty
+            # and it changed
+            if common_users and common_users != initial_common_users:
                 common_filters[base]["user"] = common_users
 
     intersection = unparse_scopes(common_filters)
